@@ -1,1 +1,4 @@
 = hash_finder
+
+== TODO
+- [ ] use worker pool to utilize more cores
