@@ -23,6 +23,7 @@
 -export([debug/0, debug2/0]).
 
 -record(state, {
+  pool_pid
 }).
 
 %%% ---------------------------------------------------
@@ -43,29 +44,33 @@ find(Hash, Reporter) when is_list(Hash), is_pid(Reporter) ->
   Hash_Bin = hex:str_to_bin(Hash),
   find(Hash_Bin, Reporter);
 find(Hash, Reporter) when is_binary(Hash), is_pid(Reporter) ->
-  gen_server:cast(server(), {find, Hash, Reporter}).
+  gen_server:cast(server(), {dist_find, Hash, Reporter}).
 
 %%% ---------------------------------------------------
 %%% gen_server.
 %%% ---------------------------------------------------
 init([]) ->
   io:fwrite("hash_finder start at ~w~n", [erlang:self()]),
-  {ok, #state{}}.
+  {ok, Pid} = wpool:start_sup_pool(?MODULE),
+  erlang:link(Pid),
+  {ok, #state{pool_pid = Pid}}.
 
 handle_call(_Request, _From, State) ->
   {reply, ignored, State}.
 
-handle_cast({dist_find, _Str, From}, State) ->
+handle_cast({dist_find, Str, From}, State) ->
   int_to_chars(0),
+  find(Str, []),
   From ! {error, not_impl},
   {noreply, State};
-handle_cast({find, Str, From}, State) ->
+handle_cast({solo_find, Str, From}, State) ->
   From ! find_acc(Str, []),
   {noreply, State};
 handle_cast(_Msg, State) ->
   {noreply, State}.
 
 handle_info(_Info, State) ->
+  io:fwrite("info(~p,~p)~n", [_Info, State]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -86,7 +91,14 @@ server() ->
 -define(zero, 32).
 -define(max, 126).
 -define(int_to_char(X), X + ?zero).
+%%-compile(export_all).
 
+find_acc(Target, []) ->
+  io:fwrite("to find for ~p~n", [Target]),
+  Stats = wpool:stats(),
+  Size = proplists:get_value(size, Stats),
+  io:fwrite("Size=~p~n", [Size]),
+  todo;
 find_acc(Target_Hash, Msg) ->
   case crypto:hash(md5, Msg) of
     Target_Hash ->
