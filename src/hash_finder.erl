@@ -18,6 +18,7 @@
 -export([code_change/3]).
 
 -record(state, {
+  pool_pid
 }).
 
 %% API.
@@ -33,10 +34,13 @@ find(Str) when is_list(Str) ->
 
 init([]) ->
   io:fwrite("hash_finder start at ~w~n", [erlang:self()]),
-  {ok, #state{}}.
+  {ok, Pid} = wpool:start_sup_pool(?MODULE),
+  erlang:link(Pid),
+  {ok, #state{pool_pid = Pid}}.
 
 handle_call({find, Str}, _From, State) ->
-  {reply, {todo, Str}, State};
+  find(Str, []),
+  {reply, sent_to_pool, State};
 handle_call(_Request, _From, State) ->
   {reply, ignored, State}.
 
@@ -44,6 +48,7 @@ handle_cast(_Msg, State) ->
   {noreply, State}.
 
 handle_info(_Info, State) ->
+  io:fwrite("info(~p,~p)~n", [_Info, State]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -64,7 +69,11 @@ server() ->
 -define(int_to_char(X), X + ?zero).
 -compile(export_all).
 
-find(Target, Acc) ->
+find(Target, []) ->
+  io:fwrite("to find for ~p~n", [Target]),
+  Stats = wpool:stats(),
+  Size = proplists:get_value(size, Stats),
+  io:fwrite("Size=~p~n", [Size]),
   todo.
 
 %%  32 is like 0
