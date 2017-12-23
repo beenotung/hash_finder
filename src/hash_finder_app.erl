@@ -5,7 +5,6 @@
 -export([stop/1]).
 
 start(_Type, _Args) ->
-	wpool:start(),
 	hash_finder_sup:start_link().
 
 stop(_State) ->

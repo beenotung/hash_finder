@@ -3,3 +3,4 @@ _rel
 deps
 ebin
 .idea/
+*.beam

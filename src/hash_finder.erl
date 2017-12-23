@@ -1,151 +1,167 @@
-%%
-%% Find the original message for a given hash
-%% target spec: not longer than 26 ascii
-%%
+%%%
+%%% Find the original message for a given hash
+%%% target spec: not longer than 26 ascii
+%%%
 -module(hash_finder).
--behaviour(gen_server).
+
 -include_lib("eunit/include/eunit.hrl").
 
-%% API.
--export([start_link/0]).
--export([find/2]).
-
-%% gen_server.
--export([init/1]).
--export([handle_call/3]).
--export([handle_cast/2]).
--export([handle_info/2]).
--export([terminate/2]).
--export([code_change/3]).
-
-%% Debug
--export([valid_chars/0]).
+% API
+-export([find/1]).
+% Debug
 -export([debug/0, debug2/0]).
 
--record(state, {
-  pool_pid
+% Callback
+-export([worker_loop/1]).
+
+% Internal
+-record(master, {
+  reporter_pid
+  , target_hash
+  , current_int = 0
+  , step_size = 1
 }).
 
-%%% ---------------------------------------------------
-%%% API.
-%%% ---------------------------------------------------
--spec start_link() -> {ok, pid()}.
-start_link() ->
-  gen_server:start_link(?MODULE, [], []).
+-record(worker, {
+  master_pid
+  , target_hash
+  , current_chars
+  , end_chars
+  , start_time
+}).
 
-find_test() ->
-  % the answer is "32"
-  find("6364d3f0f495b6ab9dcf8d3b5c6e0b01", self()),
-  % the answer is unknown
-  find("424d640bf87ff260f9b263503fc78990", self()).
+-define(ZERO, 32).
+-define(MAX, 126).
+-define(N_VALID_CHAR, (?MAX - ?ZERO + 1)).
+-define(int_to_char(X), (X + ?ZERO)).
 
-find(Hash, Reporter) when is_list(Hash), is_pid(Reporter) ->
-%%  Upper_Hash = string:to_upper(Hash),
-  Hash_Bin = hex:str_to_bin(Hash),
-  find(Hash_Bin, Reporter);
-find(Hash, Reporter) when is_binary(Hash), is_pid(Reporter) ->
-  gen_server:cast(server(), {dist_find, Hash, Reporter}).
+-define(INTERVAL, 200).
 
-%%% ---------------------------------------------------
-%%% gen_server.
-%%% ---------------------------------------------------
-init([]) ->
-  io:fwrite("hash_finder start at ~w~n", [erlang:self()]),
-  {ok, Pid} = wpool:start_sup_pool(?MODULE),
-  erlang:link(Pid),
-  {ok, #state{pool_pid = Pid}}.
-
-handle_call(_Request, _From, State) ->
-  {reply, ignored, State}.
-
-handle_cast({dist_find, Str, From}, State) ->
-  int_to_chars(0),
-  find(Str, []),
-  From ! {error, not_impl},
-  {noreply, State};
-handle_cast({solo_find, Str, From}, State) ->
-  From ! find_acc(Str, []),
-  {noreply, State};
-handle_cast(_Msg, State) ->
-  {noreply, State}.
-
-handle_info(_Info, State) ->
-  io:fwrite("info(~p,~p)~n", [_Info, State]),
-  {noreply, State}.
-
-terminate(_Reason, _State) ->
-  ok.
-
-code_change(_OldVsn, State, _Extra) ->
-  {ok, State}.
-
-%%% ---------------------------------------------------
-%%% Internal functions
-%%% ---------------------------------------------------
-server() ->
-  {ok, Pid} = hash_finder_sup:get_child(?MODULE),
-  Pid.
-
--define(valid_chars, lists:seq(32, 126)).
--define(n_valid_chars, length(?valid_chars)).
--define(zero, 32).
--define(max, 126).
--define(int_to_char(X), X + ?zero).
-%%-compile(export_all).
-
-find_acc(Target, []) ->
-  io:fwrite("to find for ~p~n", [Target]),
-  Stats = wpool:stats(),
-  Size = proplists:get_value(size, Stats),
-  io:fwrite("Size=~p~n", [Size]),
-  todo;
-find_acc(Target_Hash, Msg) ->
-  case crypto:hash(md5, Msg) of
-    Target_Hash ->
-      io:fwrite("found! it's ~p~n", [Msg]),
-      Msg;
-    _Msg_Hash ->
-%%      io:fwrite("tried ~p but no luck, go ahead~n", [Msg]),
-%%      io:fwrite("(~p) ~~> ~p =/= ~p~n", [Msg, _Msg_Hash, Target_Hash]),
-      find_acc(Target_Hash, next(Msg))
+%%% --------------------------------------------------
+%%% API Functions
+%%% --------------------------------------------------
+find(Hash) when is_list(Hash) ->
+  Bin = hex:str_to_bin(Hash),
+  find(Bin);
+find(Hash) when is_binary(Hash) ->
+  Reporter = self(),
+  spawn(
+    fun() ->
+      find_route(Hash, Reporter)
+    end),
+  receive
+    X -> X
   end.
 
-%%  32 is like 0
-%% 126 is like 9
-%% but 'leading zero' has value
-%% Like: 0 < 1 < 2 < 9 < 0,0 < 0,1 < 0,2 < 9,9 < 0,0,0 < 0,0,1
-%% Example:
-%%   32 + 1 ~~> 33
-%%   126 + 1 ~~> 32,32
-%%   126,32 + 1 ~~> 32,33
-%%   126,126 + 1 ~~> 32,32,32
-next([]) ->
-  io:fwrite("expand 1 digit~n"),
-  [?zero];
-next([?max | T]) ->
-  [?zero | next(T)];
-next([X | T]) ->
-  [X + 1 | T].
+%%% --------------------------------------------------
+%%% Test Functions
+%%% --------------------------------------------------
+find_test() ->
+  io:fwrite("testing ~p.~n", ["32"]),
+  "32" = find("6364d3f0f495b6ab9dcf8d3b5c6e0b01"),
+  io:fwrite("passed test on ~p.~n", ["32"]),
+  Msg = find("424d640bf87ff260f9b263503fc78990"),
+  io:fwrite("Found Res = ~p.~n", [Msg]),
+  ok.
 
-valid_chars() ->
-  ?valid_chars.
+%%% --------------------------------------------------
+%%% Internal Functions
+%%% --------------------------------------------------
+find_route(Target, Reporter) when is_binary(Target), is_pid(Reporter) ->
+  io:fwrite("[debug] find_route(~p,~p)~n", [Target, Reporter]),
+  master_loop(#master{
+    reporter_pid = Reporter
+    , target_hash = Target
+  }).
+
+master_loop(State = #master{step_size = Step, current_int = Start, target_hash = Target}) ->
+  Master = self(),
+  Size = proplists:get_value(size, wpool:stats(?MODULE)),
+  F = fun(C_Int) ->
+    start_worker(Master, Target, C_Int, C_Int + Step)
+      end,
+  End = Start - 1 + Size * Step,
+  control:foreach(F, Start, Step, End),
+  receive
+    {found, Msg} ->
+      io:fwrite("[log] Found, Msg = ~p.~n", [Msg]),
+      wpool:stop(?MODULE),
+      State#master.reporter_pid ! Msg;
+    {not_found, Diff} ->
+      % Calc new Step
+      io:fwrite("Last task used ~p microseconds~n", [Diff]),
+%%      io:fwrite("[debug] ~p/~p*~p~n", [?INTERVAL, Diff, Step]),
+      New_Step = floor(?INTERVAL / (Diff + 1) * Step + 1),
+%%      New_Step = Step,
+      % Calc new Range
+      New_Start = End + 1,
+      New_End = New_Start + New_Step,
+      % Start worker
+      io:fwrite("[log] Start Worker of ~p tasks from ~p~n", [New_Step, int_to_chars(New_Start)]),
+      start_worker(Master, Target, New_Start, New_End),
+      % Loop
+      master_loop(State#master{current_int = New_End + 1, step_size = New_Step})
+  end.
+
+start_worker(Reporter, Target, Start, End) when is_pid(Reporter), is_integer(Start), is_integer(End) ->
+  io:fwrite("[debug] start_worker ~p~~>~p~n", [Start, End]),
+  Start_Chars = int_to_chars(Start),
+  End_Chars = int_to_chars(End),
+  Worker = #worker{
+    master_pid = Reporter
+    , target_hash = Target
+    , current_chars = Start_Chars
+    , end_chars = End_Chars
+    , start_time = erlang:timestamp()
+  },
+  wpool:cast(?MODULE, {?MODULE, worker_loop, [Worker]}).
+
+worker_loop(State = #worker{
+  current_chars = Msg,
+  end_chars = Last_Msg,
+  target_hash = Target_Hash,
+  master_pid = Pid}) ->
+  io:fwrite("~p~~>~p~n", [Msg, Last_Msg]),
+%%  io:fwrite("."),
+  case crypto:hash(md5, Msg) of
+    Target_Hash ->
+      Pid ! {found, Msg};
+    _ ->
+      case Msg of
+        Last_Msg ->
+          Now = erlang:timestamp(),
+          Diff = timer:now_diff(Now, State#worker.start_time),
+          Pid ! {not_found, Diff};
+        _ ->
+          Next_Msg = next_chars(Msg),
+          worker_loop(State#worker{current_chars = Next_Msg})
+      end
+  end
+.
+
+next_chars([]) ->
+  [?ZERO];
+next_chars([?MAX | T]) ->
+  [?ZERO | next_chars(T)];
+next_chars([X | T]) ->
+  [X + 1 | T].
 
 int_to_chars(0) ->
   [];
 int_to_chars(X) when X > 0 ->
-  int_to_chars_acc(X, []).
+  int_to_chars_iter(X, []).
 
-int_to_chars_acc(0, Acc) ->
+int_to_chars_iter(0, Acc) ->
   Acc;
-int_to_chars_acc(X, Acc) when X > 0 ->
-  Int = X rem ?n_valid_chars,
-  Next = X div ?n_valid_chars,
+int_to_chars_iter(X, Acc) when X > 0 ->
+  Int = X rem ?N_VALID_CHAR,
+  Next = X div ?N_VALID_CHAR,
   C = ?int_to_char(Int),
-  int_to_chars_acc(Next, [C | Acc]).
+  int_to_chars_iter(Next, [C | Acc]).
 
-%%% ---------------------------------------------------
-%%% Debug functions
-%%% ---------------------------------------------------
+%%% --------------------------------------------------
+%%% Debug Functions
+%%% --------------------------------------------------
 debug() ->
   dbg:start(),
   dbg:tracer(),
