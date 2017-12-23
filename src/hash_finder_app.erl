@@ -5,7 +5,8 @@
 -export([stop/1]).
 
 start(_Type, _Args) ->
-	hash_finder_sup:start_link().
+  spawn(fun() -> hash_finder:find_test() end),
+  hash_finder_sup:start_link().
 
 stop(_State) ->
-	ok.
+  ok.

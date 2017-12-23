@@ -1,0 +1,3 @@
+#!/bin/bash
+echo "hash_finder:find_test()." | xclip -sel clipboard
+make run

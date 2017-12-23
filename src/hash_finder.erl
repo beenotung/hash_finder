@@ -5,37 +5,27 @@
 -module(hash_finder).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("./shared.hrl").
 
 % API
 -export([find/1]).
+% Test
+%%-export([chars_test/2]).
+%%-export([next_n/2]).
+%%-export([next_n_iter/2]).
+%%-export([next_n_test/1]).
 % Debug
 -export([debug/0, debug2/0]).
 
-% Callback
--export([worker_loop/1]).
+% Internal
+-export([int_to_chars/1]).
+-export([next_chars/1]).
 
 % Internal
--record(master, {
-  reporter_pid
-  , target_hash
-  , current_int = 0
-  , step_size = 1
-}).
-
--record(worker, {
-  master_pid
-  , target_hash
-  , current_chars
-  , end_chars
-  , start_time
-}).
-
 -define(ZERO, 32).
 -define(MAX, 126).
 -define(N_VALID_CHAR, (?MAX - ?ZERO + 1)).
 -define(int_to_char(X), (X + ?ZERO)).
-
--define(INTERVAL, 200).
 
 %%% --------------------------------------------------
 %%% API Functions
@@ -45,100 +35,53 @@ find(Hash) when is_list(Hash) ->
   find(Bin);
 find(Hash) when is_binary(Hash) ->
   Reporter = self(),
-  spawn(
-    fun() ->
-      find_route(Hash, Reporter)
-    end),
+  {ok, Manager} = erlib:get_sup_child(hash_finder_sup, hash_finder_manager),
+  gen_server:cast(Manager, {find, Reporter, Hash}),
   receive
-    X -> X
+    X when is_list(X) ->
+      io:fwrite("received X: ~p~n", [X]),
+      X
   end.
 
 %%% --------------------------------------------------
 %%% Test Functions
 %%% --------------------------------------------------
 find_test() ->
-  io:fwrite("testing ~p.~n", ["32"]),
+  io:fwrite("[test] testing ~p.~n", ["32"]),
   "32" = find("6364d3f0f495b6ab9dcf8d3b5c6e0b01"),
-  io:fwrite("passed test on ~p.~n", ["32"]),
+  io:fwrite("[test] passed test on ~p.~n", ["32"]),
   Msg = find("424d640bf87ff260f9b263503fc78990"),
   io:fwrite("Found Res = ~p.~n", [Msg]),
   ok.
 
+chars_test() ->
+  chars_test(1, 1),
+  chars_test(1, 100).
+
+chars_test(Start, N) ->
+  End = Start + N,
+  Start_Cs = int_to_chars(Start),
+  End_Cs = int_to_chars(End),
+  ?assertEqual(End_Cs, next_n(Start_Cs, N)).
+
+next_n_test(X) ->
+  ?assertEqual(next_n_iter("", X), next_n("", X)).
+next_n_test() ->
+  next_n_test(0),
+  next_n_test(1),
+  next_n_test(93),
+  next_n_test(93),
+  next_n_test(94),
+  next_n_test(95),
+  next_n_test(96),
+  next_n_test(100),
+  next_n_test(1000),
+  next_n_test(10000),
+  next_n_test(1000000).
+
 %%% --------------------------------------------------
 %%% Internal Functions
 %%% --------------------------------------------------
-find_route(Target, Reporter) when is_binary(Target), is_pid(Reporter) ->
-  io:fwrite("[debug] find_route(~p,~p)~n", [Target, Reporter]),
-  master_loop(#master{
-    reporter_pid = Reporter
-    , target_hash = Target
-  }).
-
-master_loop(State = #master{step_size = Step, current_int = Start, target_hash = Target}) ->
-  Master = self(),
-  Size = proplists:get_value(size, wpool:stats(?MODULE)),
-  F = fun(C_Int) ->
-    start_worker(Master, Target, C_Int, C_Int + Step)
-      end,
-  End = Start - 1 + Size * Step,
-  control:foreach(F, Start, Step, End),
-  receive
-    {found, Msg} ->
-      io:fwrite("[log] Found, Msg = ~p.~n", [Msg]),
-      wpool:stop(?MODULE),
-      State#master.reporter_pid ! Msg;
-    {not_found, Diff} ->
-      % Calc new Step
-      io:fwrite("Last task used ~p microseconds~n", [Diff]),
-%%      io:fwrite("[debug] ~p/~p*~p~n", [?INTERVAL, Diff, Step]),
-      New_Step = floor(?INTERVAL / (Diff + 1) * Step + 1),
-%%      New_Step = Step,
-      % Calc new Range
-      New_Start = End + 1,
-      New_End = New_Start + New_Step,
-      % Start worker
-      io:fwrite("[log] Start Worker of ~p tasks from ~p~n", [New_Step, int_to_chars(New_Start)]),
-      start_worker(Master, Target, New_Start, New_End),
-      % Loop
-      master_loop(State#master{current_int = New_End + 1, step_size = New_Step})
-  end.
-
-start_worker(Reporter, Target, Start, End) when is_pid(Reporter), is_integer(Start), is_integer(End) ->
-  io:fwrite("[debug] start_worker ~p~~>~p~n", [Start, End]),
-  Start_Chars = int_to_chars(Start),
-  End_Chars = int_to_chars(End),
-  Worker = #worker{
-    master_pid = Reporter
-    , target_hash = Target
-    , current_chars = Start_Chars
-    , end_chars = End_Chars
-    , start_time = erlang:timestamp()
-  },
-  wpool:cast(?MODULE, {?MODULE, worker_loop, [Worker]}).
-
-worker_loop(State = #worker{
-  current_chars = Msg,
-  end_chars = Last_Msg,
-  target_hash = Target_Hash,
-  master_pid = Pid}) ->
-  io:fwrite("~p~~>~p~n", [Msg, Last_Msg]),
-%%  io:fwrite("."),
-  case crypto:hash(md5, Msg) of
-    Target_Hash ->
-      Pid ! {found, Msg};
-    _ ->
-      case Msg of
-        Last_Msg ->
-          Now = erlang:timestamp(),
-          Diff = timer:now_diff(Now, State#worker.start_time),
-          Pid ! {not_found, Diff};
-        _ ->
-          Next_Msg = next_chars(Msg),
-          worker_loop(State#worker{current_chars = Next_Msg})
-      end
-  end
-.
-
 next_chars([]) ->
   [?ZERO];
 next_chars([?MAX | T]) ->
@@ -146,18 +89,42 @@ next_chars([?MAX | T]) ->
 next_chars([X | T]) ->
   [X + 1 | T].
 
-int_to_chars(0) ->
-  [];
-int_to_chars(X) when X > 0 ->
-  int_to_chars_iter(X, []).
+next_n_iter(Cs, 0) ->
+  Cs;
+next_n_iter(Cs, N) when N > 0 ->
+  next_n_iter(next_chars(Cs), N - 1).
 
-int_to_chars_iter(0, Acc) ->
-  Acc;
-int_to_chars_iter(X, Acc) when X > 0 ->
-  Int = X rem ?N_VALID_CHAR,
-  Next = X div ?N_VALID_CHAR,
-  C = ?int_to_char(Int),
-  int_to_chars_iter(Next, [C | Acc]).
+next_n(Cs, 0) ->
+  Cs;
+next_n([], N) when N >= 0, N =< ?N_VALID_CHAR ->
+  [N + ?ZERO - 1];
+next_n([], N) when N >= 0, N > ?N_VALID_CHAR ->
+  {Base_Int, N_Char} = n_char(N),
+  Base_Cs = lists:duplicate(N_Char, ?ZERO),
+  next_n(Base_Cs, N - Base_Int);
+next_n([X | T], N) when X + N =< ?MAX ->
+  [X + N | T];
+next_n([X | T], N) when X + N > ?MAX ->
+  H = (X - ?ZERO + N),
+  Y = (H rem ?N_VALID_CHAR) + ?ZERO,
+  R = H div ?N_VALID_CHAR,
+  [Y | next_n(T, R)].
+
+%% next_n helper
+-spec n_char(pos_integer()) -> {Base, N_Char} when Base :: pos_integer(), N_Char :: pos_integer().
+n_char(X) ->
+  n_char(X, 0, 1, 0).
+n_char(X, Base0, Pow0, N) ->
+  Base1 = Base0 + Pow0,
+  Pow1 = Pow0 * 95,
+  if X < Base1 ->
+    {Base0, N};
+    true ->
+      n_char(X, Base1, Pow1, N + 1)
+  end.
+
+int_to_chars(X) when X >= 0 ->
+  next_n("", X).
 
 %%% --------------------------------------------------
 %%% Debug Functions
