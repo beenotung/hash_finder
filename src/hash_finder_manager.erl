@@ -44,8 +44,8 @@ handle_cast({find, Reporter, Hex}, State0) when is_pid(Reporter), is_binary(Hex)
     , current_int = 0
     , step_size = Step
   },
-  io:fwrite("number of ready workers: ~p~n", [length(State1#manager.ready_worker_pids)]),
-  New_Current_Int = lists:foldl(
+  io:fwrite("number of ready workers: ~p~n", [sets:size(State1#manager.ready_worker_pids)]),
+  New_Current_Int = sets:fold(
     fun(Worker, Current_Int) ->
       Task = #task{
         master_pid = self()
@@ -62,7 +62,7 @@ handle_cast({find, Reporter, Hex}, State0) when is_pid(Reporter), is_binary(Hex)
   {noreply, State};
 handle_cast({ready, Worker}, State) when is_pid(Worker) ->
   io:fwrite("[manager] worker ~p ready~n", [Worker]),
-  New_List = [Worker | State#manager.ready_worker_pids],
+  New_List = sets:add_element(Worker, State#manager.ready_worker_pids),
   New_State = State#manager{ready_worker_pids = New_List},
   {noreply, New_State};
 handle_cast({found, Msg}, State) ->

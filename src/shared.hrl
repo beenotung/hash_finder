@@ -5,7 +5,7 @@
   , current_int = 0
   , step_size = 1
   , worker_pids = []
-  , ready_worker_pids = []
+  , ready_worker_pids = sets:new()
 }).
 
 -record(worker, {
