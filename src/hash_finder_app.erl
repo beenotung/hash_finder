@@ -7,7 +7,7 @@
 start(_Type, _Args) ->
   case os:getenv("AUTO") of
     "true" ->
-      spawn(fun() -> hash_finder:find_test() end);
+      erlang:spawn(fun() -> hash_finder:find_test() end);
     false ->
       ok
   end,

@@ -1,0 +1,16 @@
+#!/bin/bash
+case "$(uname -s)" in
+  Linux*)
+    IP=$(ip addr | grep inet | grep -v inet6 | awk '{print $2}' | awk -F '/' '{print $1}' | grep -v '127.0.0.1' | head -n 1)
+    ;;
+  CYGWIN*)
+    IP=$(ipconfig | grep 192 | awk '{print $NF}' | head -n 1)
+    ;;
+  *)
+    echo &>2 "Error: Unknown platform."
+    exit 1
+    ;;
+esac
+name="worker@$IP"
+find _rel -name vm.args -exec sed -i "s/^-name .*\$/-name $name/" {} \;
+./rel.sh console
