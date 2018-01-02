@@ -1,9 +1,11 @@
 -module(util).
 
+-export([get_server_node/0]).
+-export([role/0]).
+
 -export([get_ip/0]).
 -export([get_host/0]).
 -export([get_server_ip/0]).
--export([role/0]).
 
 get_ip() ->
   {ok, Ips} = inet:getif(),
@@ -33,6 +35,14 @@ get_host_list() ->
   {ok, {_, _, Body}} = httpc:request(get, {"https://host-list.surge.sh/list", []}, [], [{sync, true}]),
   Body.
 
+get_server_node() ->
+  Host = find_service("hash_finder", get_host_list()),
+  [Ip, _] = string:split(Host, ":"),
+  Name = ["master@", Ip],
+%%  Name = ["hash_finder@", Ip],
+  Bin = iolist_to_binary(Name),
+  binary_to_atom(Bin, latin1).
+
 find_service(Name, Body) ->
   case string:split(Body, "\n") of
     [Line, Res] ->
@@ -60,6 +70,8 @@ role() ->
     "worker" ->
       worker;
     "master" ->
+      master;
+    "hash_finder" ->
       master;
     _ ->
       {error, invalid_name}

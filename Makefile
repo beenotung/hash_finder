@@ -6,7 +6,7 @@ DEPS = erlib hex
 dep_erlib = git https://github.com/beenotung/erlib.git v0.2.1
 dep_hex = git https://github.com/beenotung/hex.git v0.1.0
 
-LOCAL_DEPS = crypto
+LOCAL_DEPS = crypto inets ssl
 
 include erlang.mk
 

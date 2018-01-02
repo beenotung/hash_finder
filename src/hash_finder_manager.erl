@@ -26,11 +26,19 @@ start_link() ->
 %% gen_server.
 
 init([]) ->
-  Workers = start_worker(),
-  State = #manager{
-    worker_pids = Workers
-  },
-  {ok, State}.
+  case util:role() of
+    master ->
+      register(master, self()),
+      {ok, #manager{worker_pids = []}};
+    worker ->
+      Master = {master, util:get_server_node()},
+      Workers = start_worker(Master),
+      State = #manager{
+        worker_pids = Workers,
+        remote_master = Master
+      },
+      {ok, State}
+  end.
 
 handle_call(_Request, _From, State) ->
   {reply, ignored, State}.
@@ -48,7 +56,7 @@ handle_cast({find, Reporter, Hex}, State0) when is_pid(Reporter), is_binary(Hex)
   New_Current_Int = sets:fold(
     fun(Worker, Current_Int) ->
       Task = #task{
-        master_pid = self()
+        master_pid = get_master(State0)
         , target_hash = Hex
         , start_int = Current_Int
         , end_int = Current_Int + Step
@@ -85,7 +93,7 @@ handle_cast({not_found, Worker, Old_Step, Diff}, State = #manager{current_int = 
   io:fwrite("[~p] checkpoint: [~p] ~p~n", [?MODULE, length(Checkpoint), Checkpoint]),
   End = Start + Step,
   Task = #task{
-    master_pid = self()
+    master_pid = get_master(State)
     , target_hash = State#manager.target_hash
     , start_int = Start
     , end_int = End
@@ -112,12 +120,20 @@ code_change(_OldVsn, State, _Extra) ->
 
 % start from step 1
 % the step can be adjusted upon task progress feedback
-start_worker() ->
+start_worker(Master) ->
   N = erlang:system_info(schedulers),
 %%  N = 100,
-  start_worker(1, N, []).
-start_worker(C, N, Pids) when C > N ->
+  start_worker(1, N, [], Master).
+start_worker(C, N, Pids, _Master) when C > N ->
   Pids;
-start_worker(C, N, Pids) when C =< N ->
-  {ok, Pid} = gen_server:start_link(hash_finder_worker, [self()], []),
-  start_worker(C + 1, N, [Pid | Pids]).
+start_worker(C, N, Pids, Master) when C =< N ->
+  {ok, Pid} = gen_server:start_link(hash_finder_worker, [Master], []),
+  start_worker(C + 1, N, [Pid | Pids], Master).
+
+get_master(#manager{remote_master = Remote_Master}) ->
+  case util:role() of
+    master ->
+      self();
+    worker ->
+      Remote_Master
+  end.

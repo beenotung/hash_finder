@@ -16,7 +16,7 @@
 -export([code_change/3]).
 
 -record(state, {
-  sup_pid
+  master
   , worker_pid
 }).
 
@@ -31,9 +31,11 @@ start_link(Args) ->
 
 %% gen_server.
 
-init([Sup_Pid]) when is_pid(Sup_Pid) ->
-  gen_server:cast(Sup_Pid, {ready, self()}),
-  {ok, #state{sup_pid = Sup_Pid}}.
+-spec init([Master]) -> {ok, #state{}} when
+  Master :: pid() | {master, atom()}.
+init([Master]) ->
+  gen_server:cast(Master, {ready, self()}),
+  {ok, #state{master = Master}}.
 
 handle_call(_Request, _From, State) ->
   {reply, ignored, State}.
@@ -50,10 +52,10 @@ handle_cast({start, Task}, State = #state{worker_pid = Old_Worker}) when is_reco
     worker_pid = Worker_Pid
   },
   {noreply, New_State};
-handle_cast(stop, #state{worker_pid = Worker, sup_pid = Sup}) ->
+handle_cast(stop, #state{worker_pid = Worker, master = Sup}) ->
   stop_worker(Worker, cast_request),
   gen_server:cast(Sup, {ready, self()}),
-  {noreply, #state{sup_pid = Sup}};
+  {noreply, #state{master = Sup}};
 handle_cast(_Msg, State) ->
   io:fwrite("[~p] unknown cast: ~p~n", [?MODULE, _Msg]),
   {noreply, State}.

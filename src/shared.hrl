@@ -6,6 +6,7 @@
   , step_size = 1
   , worker_pids = []
   , ready_worker_pids = sets:new()
+  , remote_master :: {master, atom()}
 }).
 
 -record(worker, {

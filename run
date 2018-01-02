@@ -11,6 +11,10 @@ case "$(uname -s)" in
     exit 1
     ;;
 esac
-name="worker@$IP"
+if [ "$MODE" == "master" ]; then
+  name="master@$IP"
+else
+  name="worker@$IP"
+fi
 find _rel -name vm.args -exec sed -i "s/^-name .*\$/-name $name/" {} \;
 ./rel.sh console
