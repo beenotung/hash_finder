@@ -72,7 +72,8 @@ handle_cast({ready, Worker}, State) when is_pid(Worker) ->
     worker_pids = sets:add_element(Worker, State#manager.worker_pids)
     , ready_worker_pids = sets:add_element(Worker, State#manager.worker_pids)
   },
-  {noreply, New_State};
+  New_Current_Int = dispatch_to_worker(State),
+  {noreply, New_State#manager{current_int = New_Current_Int}};
 handle_cast({found, Msg}, State) ->
   State#manager.reporter_pid ! Msg,
   sets:fold(
