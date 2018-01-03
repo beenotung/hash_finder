@@ -8,6 +8,7 @@
 
 %% API.
 -export([start_link/0]).
+-export([report/0]).
 
 %% gen_server.
 -export([init/1]).

@@ -9,18 +9,24 @@ start() ->
   crypto:start(),
   inets:start(),
   ssl:start(),
-%%  start([], []),
-  hash_finder_manager:start_link(),
-  io:fwrite("[log] ready~n").
+%%  Res = start([], []),
+  Res = hash_finder_manager:start_link(),
+  check_auto(),
+  io:fwrite("[log] ready~n"),
+  Res.
 
 start(_Type, _Args) ->
+  Res = hash_finder_sup:start_link(),
+  check_auto(),
+  Res.
+
+stop(_State) ->
+  ok.
+
+check_auto() ->
   case os:getenv("AUTO") of
     "true" ->
       erlang:spawn(fun() -> hash_finder:find_test() end);
     false ->
       ok
-  end,
-  hash_finder_sup:start_link().
-
-stop(_State) ->
-  ok.
+  end.
