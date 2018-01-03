@@ -20,4 +20,6 @@ else
   name="worker@$IP"
 fi
 find _rel -name vm.args -exec sed -i "s/^-name .*\$/-name $name/" {} \;
-./rel.sh console
+find rel -name vm.args -exec sed -i "s/^-name .*\$/-name $name/" {} \;
+#./rel.sh console
+./dev-otp

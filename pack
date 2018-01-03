@@ -1,4 +1,6 @@
 #!/bin/bash
+find deps -path '*src*' -name '*.erl' -exec mv {} src/ \;
+sed -i 's/^DEPS = .*/DEPS = /' Makefile
 name=$(pwd | awk -F '/' '{print $NF}')
 cd ../
 tar cJf "$name.tar.xz" "$name"

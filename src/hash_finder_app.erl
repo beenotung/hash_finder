@@ -1,8 +1,11 @@
 -module(hash_finder_app).
 -behaviour(application).
 
--export([start/2]).
+-export([start/2, start/0]).
 -export([stop/1]).
+
+start() ->
+  start([], []).
 
 start(_Type, _Args) ->
   case os:getenv("AUTO") of
