@@ -23,6 +23,9 @@
 start_link() ->
   gen_server:start_link(?MODULE, [], []).
 
+report() ->
+  gen_server:call({master, util:get_server_node()}, report).
+
 %% gen_server.
 
 init([]) ->
@@ -43,6 +46,16 @@ init([]) ->
       {ok, State}
   end.
 
+handle_call(report, _From, State) ->
+  Current_Int = State#manager.current_int,
+  Current_Str = hash_finder:int_to_chars(Current_Int),
+  Report = #{
+    n_worker => sets:size(State#manager.worker_pids)
+    , n_node => length(nodes())
+    , current_int => Current_Int
+    , current_str => Current_Str
+  },
+  {reply, Report, State};
 handle_call(_Request, _From, State) ->
   {reply, ignored, State}.
 
