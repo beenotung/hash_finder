@@ -5,3 +5,4 @@ ebin
 .idea/
 *.beam
 hash_finder.d
+dist/

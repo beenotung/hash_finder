@@ -1,7 +1,12 @@
 #!/bin/bash
-find deps -path '*src*' -name '*.erl' -exec mv {} src/ \;
-sed -i 's/^DEPS = .*/DEPS = /' Makefile
 name=$(pwd | awk -F '/' '{print $NF}')
-cd ../
+rm -rf dist
+mkdir -p dist/"$name"
+find -maxdepth 1 -type f -exec cp {} "dist/$name" \;
+cp -r src "dist/$name/"
+cp -r rel "dist/$name/"
+find deps -path '*src*' -name '*.erl' -exec cp {} "dist/$name/src/" \;
+sed -i 's/^DEPS = .*/DEPS = /' "dist/$name/Makefile"
+cd dist
 tar cJf "$name.tar.xz" "$name"
-echo "done to ../$name.tar.xz"
+echo "done to dist/$name.tar.xz"

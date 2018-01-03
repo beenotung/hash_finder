@@ -19,7 +19,7 @@ if [ "$MODE" == "master" ]; then
 else
   name="worker@$IP"
 fi
-find _rel -name vm.args -exec sed -i "s/^-name .*\$/-name $name/" {} \;
-find rel -name vm.args -exec sed -i "s/^-name .*\$/-name $name/" {} \;
+#find _rel -name vm.args -exec sed -i "s/^-name .*\$/-name $name/" {} \;
 #./rel.sh console
+find rel -name vm.args -exec sed -i "s/^-name .*\$/-name $name/" {} \;
 ./dev-otp

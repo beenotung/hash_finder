@@ -1,6 +1,8 @@
 #!/bin/bash
-find deps -name '*.beam' -not -path '*/lib/*' -exec cp {} src/ \;
-find deps -name '*.app' -not -path '*/lib/*' -exec cp {} src/ \;
+if [ -d deps ]; then
+  find deps -name '*.beam' -not -path '*/lib/*' -exec cp {} src/ \;
+  find deps -name '*.app' -not -path '*/lib/*' -exec cp {} src/ \;
+fi
 cd src
 erlc *.erl
 erl $(cat ../rel/vm.args | tr '\n' ' ') -run hash_finder_app start
