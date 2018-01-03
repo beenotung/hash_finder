@@ -28,6 +28,7 @@ start_link() ->
 init([]) ->
   case util:role() of
     master ->
+      io:fwrite("[log] register master ~p~n", [self()]),
       register(master, self()),
       {ok, #manager{}};
     worker ->
@@ -114,8 +115,8 @@ handle_cast(_Msg, State) ->
   io:fwrite("[~p] unknown cast: ~p~n", [?MODULE, _Msg]),
   {noreply, State}.
 
-handle_info({'DOWN', _Ref, process, {master, _}, noconnection}, State) ->
-  io:fwrite("[info] manager lost connection to master~n"),
+handle_info({'DOWN', _Ref, process, Master = {master, _}, Reason}, State) ->
+  io:fwrite("[info] manager lost connection to ~p ~p~n", [Master, Reason]),
   erlang:self() ! reconnect,
   {noreply, State};
 handle_info(check_worker, State = #manager{ready_worker_pids = Workers}) ->

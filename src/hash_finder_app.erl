@@ -5,7 +5,13 @@
 -export([stop/1]).
 
 start() ->
-  start([], []).
+  io:fwrite("[log] start~n"),
+  crypto:start(),
+  inets:start(),
+  ssl:start(),
+%%  start([], []),
+  hash_finder_manager:start_link(),
+  io:fwrite("[log] ready~n").
 
 start(_Type, _Args) ->
   case os:getenv("AUTO") of

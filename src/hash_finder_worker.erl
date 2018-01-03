@@ -61,10 +61,10 @@ handle_cast(_Msg, State) ->
   io:fwrite("[~p] unknown cast: ~p~n", [?MODULE, _Msg]),
   {noreply, State}.
 
-handle_info({'DOWN', _Ref, process, {master, _}, noconnection}, State) ->
+handle_info({'DOWN', _Ref, process, {master, _}, _}, State) ->
   {stop, normal, State};
 handle_info(Info, State) ->
-  io:fwrite("[info] ~p~n", [Info]),
+  io:fwrite("[info] worker received unknown info: ~p~n", [Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->
