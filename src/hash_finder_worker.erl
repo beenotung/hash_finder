@@ -34,6 +34,7 @@ start_link(Args) ->
 -spec init([Master]) -> {ok, #state{}} when
   Master :: pid() | {master, atom()}.
 init([Master]) ->
+  erlang:monitor(process, Master),
   gen_server:cast(Master, {ready, self()}),
   {ok, #state{master = Master}}.
 
@@ -60,7 +61,10 @@ handle_cast(_Msg, State) ->
   io:fwrite("[~p] unknown cast: ~p~n", [?MODULE, _Msg]),
   {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_info({'DOWN', _Ref, process, {master, _}, noconnection}, State) ->
+  {stop, normal, State};
+handle_info(Info, State) ->
+  io:fwrite("[info] ~p~n", [Info]),
   {noreply, State}.
 
 terminate(_Reason, _State) ->

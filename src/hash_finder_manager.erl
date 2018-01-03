@@ -32,6 +32,7 @@ init([]) ->
       {ok, #manager{worker_pids = []}};
     worker ->
       Master = {master, util:get_server_node()},
+      erlang:monitor(process, Master),
       Workers = start_worker(Master),
       State = #manager{
         worker_pids = Workers,
@@ -90,7 +91,11 @@ handle_cast({not_found, Worker, Old_Step, Diff}, State = #manager{current_int = 
   Alpha = 0.1,
   Step = floor((Old_Step * (1 - Alpha)) + (Step_Guess * Alpha)) + 1,
   Checkpoint = hash_finder:int_to_chars(Start),
-  io:fwrite("[~p] checkpoint: [~p] ~p~n", [?MODULE, length(Checkpoint), Checkpoint]),
+%%  io:fwrite("[~p] checkpoint: [~p] ~p~n", [?MODULE, length(Checkpoint), Checkpoint]),
+  io:fwrite("~p~n", [#{
+    checkpoint=>Checkpoint
+    , step=>Step
+  }]),
   End = Start + Step,
   Task = #task{
     master_pid = get_master(State)
@@ -106,6 +111,17 @@ handle_cast(_Msg, State) ->
   io:fwrite("[~p] unknown cast: ~p~n", [?MODULE, _Msg]),
   {noreply, State}.
 
+handle_info({'DOWN', _Ref, process, {master, _}, noconnection}, State) ->
+  io:fwrite("[info] manager lost connection to master~n"),
+  erlang:self() ! reconnect,
+  {noreply, State};
+handle_info(reconnect, State) ->
+  case reconnect(State) of
+    {ok, New_State} ->
+      {noreply, New_State};
+    more ->
+      {noreply, State}
+  end;
 handle_info(_Info, State) ->
   io:fwrite("[~p] unknown info: ~p~n", [?MODULE, _Info]),
   {noreply, State}.
@@ -136,4 +152,22 @@ get_master(#manager{remote_master = Remote_Master}) ->
       self();
     worker ->
       Remote_Master
+  end.
+
+reconnect(State) ->
+  Node = util:get_server_node(),
+  io:fwrite("[log] manager try to reconnect to master ~p~n", [Node]),
+  case net_kernel:connect(Node) of
+    true ->
+      Master = {master, Node},
+      erlang:monitor(process, Master),
+      Workers = start_worker(Master),
+      New_State = State#manager{
+        worker_pids = Workers,
+        remote_master = Master
+      },
+      {ok, New_State};
+    false ->
+      erlang:send_after(1000, self(), reconnect),
+      more
   end.
