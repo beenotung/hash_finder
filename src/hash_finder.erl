@@ -10,6 +10,7 @@
 % API
 -export([find/1]).
 % Test
+-export([find_test/1]).
 %%-export([chars_test/2]).
 %%-export([next_n/2]).
 %%-export([next_n_iter/2]).
@@ -35,8 +36,9 @@ find(Hash) when is_list(Hash) ->
   find(Bin);
 find(Hash) when is_binary(Hash) ->
   Reporter = self(),
-  {ok, Manager} = erlib:get_sup_child(hash_finder_sup, hash_finder_manager),
-  gen_server:cast(Manager, {find, Reporter, Hash}),
+%%  {ok, Manager} = erlib:get_sup_child(hash_finder_sup, hash_finder_manager),
+%%  gen_server:cast(Manager, {find, Reporter, Hash}),
+  gen_server:cast({master, util:get_server_node()}, {find, Reporter, Hash}),
   receive
     X when is_list(X) ->
       io:fwrite("received X: ~p~n", [X]),
@@ -53,6 +55,8 @@ find_test() ->
   Msg = find("424d640bf87ff260f9b263503fc78990"),
   io:fwrite("Found Res = ~p.~n", [Msg]),
   ok.
+find_test(Msg) ->
+  ?assertEqual(Msg, find(crypto:hash(md5, Msg))).
 
 chars_test() ->
   chars_test(1, 1),

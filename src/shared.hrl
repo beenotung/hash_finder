@@ -4,8 +4,8 @@
   , target_hash
   , current_int = 0
   , step_size = 1
-  , worker_pids = []
-  , ready_worker_pids = sets:new()
+  , worker_pids = sets:new() :: sets:set()
+  , ready_worker_pids = sets:new() :: sets:set()
   , remote_master :: {master, atom()}
 }).
 

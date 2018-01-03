@@ -29,13 +29,14 @@ init([]) ->
   case util:role() of
     master ->
       register(master, self()),
-      {ok, #manager{worker_pids = []}};
+      {ok, #manager{}};
     worker ->
       Master = {master, util:get_server_node()},
       erlang:monitor(process, Master),
-      Workers = start_worker(Master),
+      Worker_List = start_worker(Master),
+      Worker_Set = sets:from_list(Worker_List),
       State = #manager{
-        worker_pids = Workers,
+        worker_pids = Worker_Set,
         remote_master = Master
       },
       {ok, State}
@@ -53,60 +54,62 @@ handle_cast({find, Reporter, Hex}, State0) when is_pid(Reporter), is_binary(Hex)
     , current_int = 0
     , step_size = Step
   },
-  io:fwrite("number of ready workers: ~p~n", [sets:size(State1#manager.ready_worker_pids)]),
-  New_Current_Int = sets:fold(
-    fun(Worker, Current_Int) ->
-      Task = #task{
-        master_pid = get_master(State0)
-        , target_hash = Hex
-        , start_int = Current_Int
-        , end_int = Current_Int + Step
-      },
-      gen_server:cast(Worker, {start, Task}),
-      Current_Int + Step + 1
-    end,
-    State1#manager.current_int, State1#manager.ready_worker_pids
-  ),
-  State = State1#manager{current_int = New_Current_Int},
-  {noreply, State};
+  Workers = State1#manager.ready_worker_pids,
+  N_Worker = sets:size(Workers),
+  io:fwrite("[log] number of ready workers: ~p~n", [N_Worker]),
+  if N_Worker > 0 ->
+    New_Current_Int = dispatch_to_worker(State1),
+    State2 = State1#manager{current_int = New_Current_Int},
+    {noreply, State2};
+    N_Worker == 0 ->
+      erlang:send_after(1000, self(), check_worker),
+      {noreply, State1}
+  end;
 handle_cast({ready, Worker}, State) when is_pid(Worker) ->
   io:fwrite("[manager] worker ~p ready~n", [Worker]),
-  New_List = sets:add_element(Worker, State#manager.ready_worker_pids),
-  New_State = State#manager{ready_worker_pids = New_List},
+  New_State = State#manager{
+    worker_pids = sets:add_element(Worker, State#manager.worker_pids)
+    , ready_worker_pids = sets:add_element(Worker, State#manager.worker_pids)
+  },
   {noreply, New_State};
 handle_cast({found, Msg}, State) ->
   State#manager.reporter_pid ! Msg,
-  lists:foreach(
-    fun(Worker) -> gen_server:cast(Worker, stop) end
-    , State#manager.worker_pids),
-  New_State = #manager{
-    worker_pids = State#manager.worker_pids
-    , ready_worker_pids = State#manager.ready_worker_pids
-  },
+  sets:fold(
+    fun(Worker, _) ->
+      gen_server:cast(Worker, stop)
+    end, ok, State#manager.worker_pids),
+  New_State = State#manager{target_hash = undefined},
   {noreply, New_State};
 handle_cast({not_found, Worker, Old_Step, Diff}, State = #manager{current_int = Start}) ->
-%%  io:fwrite("[~p] worker ~p finished in ~p~n", [?MODULE, Worker, Diff]),
-  Target_Diff = ?INTERVAL * length(State#manager.worker_pids),
-  Step_Guess = Old_Step * Target_Diff / (Diff + 1),
-  Alpha = 0.1,
-  Step = floor((Old_Step * (1 - Alpha)) + (Step_Guess * Alpha)) + 1,
-  Checkpoint = hash_finder:int_to_chars(Start),
-%%  io:fwrite("[~p] checkpoint: [~p] ~p~n", [?MODULE, length(Checkpoint), Checkpoint]),
-  io:fwrite("~p~n", [#{
-    checkpoint=>Checkpoint
-    , step=>Step
-  }]),
-  End = Start + Step,
-  Task = #task{
-    master_pid = get_master(State)
-    , target_hash = State#manager.target_hash
-    , start_int = Start
-    , end_int = End
-  },
-  gen_server:cast(Worker, {start, Task}),
-  Default_Step = floor((Step + State#manager.step_size) / 2) + 1,
-  New_State = State#manager{current_int = End + 1, step_size = Default_Step},
-  {noreply, New_State};
+  if is_binary(State#manager.target_hash) ->
+%%    io:fwrite("[~p] worker ~p finished in ~p~n", [?MODULE, Worker, Diff]),
+    N_Worker = sets:size(State#manager.worker_pids),
+    Target_Diff = ?INTERVAL * N_Worker,
+    Step_Guess = Old_Step * Target_Diff / (Diff + 1),
+    Alpha = 0.1,
+    Step = floor((Old_Step * (1 - Alpha)) + (Step_Guess * Alpha)) + 1,
+    Checkpoint = hash_finder:int_to_chars(Start),
+    io:fwrite("~p~n", [#{
+      checkpoint=>Checkpoint
+      , step=>Step
+%%      , step_guess=>Step_Guess
+%%      , target_diff=>Target_Diff
+%%      , n_worker=>N_Worker
+    }]),
+    End = Start + Step,
+    Task = #task{
+      master_pid = get_master(State)
+      , target_hash = State#manager.target_hash
+      , start_int = Start
+      , end_int = End
+    },
+    gen_server:cast(Worker, {start, Task}),
+    Default_Step = floor((Step + State#manager.step_size) / 2) + 1,
+    New_State = State#manager{current_int = End + 1, step_size = Default_Step},
+    {noreply, New_State};
+    true ->
+      {noreply, State}
+  end;
 handle_cast(_Msg, State) ->
   io:fwrite("[~p] unknown cast: ~p~n", [?MODULE, _Msg]),
   {noreply, State}.
@@ -115,6 +118,16 @@ handle_info({'DOWN', _Ref, process, {master, _}, noconnection}, State) ->
   io:fwrite("[info] manager lost connection to master~n"),
   erlang:self() ! reconnect,
   {noreply, State};
+handle_info(check_worker, State = #manager{ready_worker_pids = Workers}) ->
+  case sets:size(Workers) of
+    0 ->
+      erlang:send_after(1000, self(), check_worker),
+      {noreply, State};
+    N when N > 0 ->
+      New_Current_Int = dispatch_to_worker(State),
+      New_State = State#manager{current_int = New_Current_Int},
+      {noreply, New_State}
+  end;
 handle_info(reconnect, State) ->
   case reconnect(State) of
     {ok, New_State} ->
@@ -140,11 +153,11 @@ start_worker(Master) ->
   N = erlang:system_info(schedulers),
 %%  N = 100,
   start_worker(1, N, [], Master).
-start_worker(C, N, Pids, _Master) when C > N ->
-  Pids;
-start_worker(C, N, Pids, Master) when C =< N ->
+start_worker(C, N, Pid_List, _Master) when C > N ->
+  Pid_List;
+start_worker(C, N, Pid_List, Master) when C =< N ->
   {ok, Pid} = gen_server:start_link(hash_finder_worker, [Master], []),
-  start_worker(C + 1, N, [Pid | Pids], Master).
+  start_worker(C + 1, N, [Pid | Pid_List], Master).
 
 get_master(#manager{remote_master = Remote_Master}) ->
   case util:role() of
@@ -156,14 +169,16 @@ get_master(#manager{remote_master = Remote_Master}) ->
 
 reconnect(State) ->
   Node = util:get_server_node(),
-  io:fwrite("[log] manager try to reconnect to master ~p~n", [Node]),
+  util:println_iolist(["[log] ", util:now_iolist(), " try to reconnect to master ", io_lib:format("~p", [Node])]),
   case net_kernel:connect(Node) of
     true ->
+      util:println_iolist(["[log] ", util:now_iolist(), " connected to master"]),
       Master = {master, Node},
       erlang:monitor(process, Master),
-      Workers = start_worker(Master),
+      Worker_List = start_worker(Master),
+      Worker_Set = sets:from_list(Worker_List),
       New_State = State#manager{
-        worker_pids = Workers,
+        worker_pids = Worker_Set,
         remote_master = Master
       },
       {ok, New_State};
@@ -171,3 +186,22 @@ reconnect(State) ->
       erlang:send_after(1000, self(), reconnect),
       more
   end.
+
+dispatch_to_worker(State = #manager{
+  target_hash = Hex
+  , ready_worker_pids = Workers
+  , step_size = Step}) ->
+  New_Current_Int = sets:fold(
+    fun(Worker, Current_Int) ->
+      Task = #task{
+        master_pid = get_master(State)
+        , target_hash = Hex
+        , start_int = Current_Int
+        , end_int = Current_Int + Step
+      },
+      gen_server:cast(Worker, {start, Task}),
+      Current_Int + Step + 1
+    end,
+    State#manager.current_int, Workers
+  ),
+  New_Current_Int.

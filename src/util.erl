@@ -3,6 +3,14 @@
 -export([get_server_node/0]).
 -export([role/0]).
 
+-export([now_iolist/0]).
+
+-export([
+  print_iolist/2
+  , println_iolist/1
+  , println_iolist/2
+]).
+
 -export([get_ip/0]).
 -export([get_host/0]).
 -export([get_server_ip/0]).
@@ -76,3 +84,16 @@ role() ->
     _ ->
       {error, invalid_name}
   end.
+
+now_iolist() ->
+  {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_datetime(erlang:timestamp()),
+  io_lib:format("~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Year, Month, Day, Hour, Minute, Second]).
+
+print_iolist(IOList, Args) ->
+  Str = lists:flatten(IOList),
+  io:fwrite(Str, Args).
+
+println_iolist(IOList) ->
+  println_iolist(IOList, []).
+println_iolist(IOList, Args) ->
+  print_iolist([IOList, "~n"], Args).
