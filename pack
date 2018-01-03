@@ -1,0 +1,5 @@
+#!/bin/bash
+name=$(pwd | awk -F '/' '{print $NF}')
+cd ../
+tar cJf "$name.tar.xz" "$name"
+echo "done to ../$name.tar.xz"
