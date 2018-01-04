@@ -16,8 +16,20 @@ case "$(uname -s)" in
 esac
 hash erl 2>/dev/null
 if [ $? != 0 ]; then
-  echo >&2 "erl not in PATH, please install it manually"
-  exit 1
+  echo >&2 "erl not in PATH, try to find it"
+  erl=$(echo $PWD/../erl*/)
+  echo "erl=$erl"
+  if [ -f "$erl/bin/erl.exe" ]; then
+    echo "found $erl/bin/erl.exe"
+    pwd=$PWD
+    cd "$erl"
+    ./Install.exe -s
+    cd "$pwd"
+    export PATH="$erl/bin:$PATH"
+  else
+    echo >&2 "erl runtime not found, exiting"
+    exit 1
+  fi
 fi
 if [ "$MODE" == "master" ]; then
   name="master@$IP"
