@@ -14,6 +14,11 @@ case "$(uname -s)" in
     exit 1
     ;;
 esac
+hash erl 2>/dev/null
+if [ $? != 0 ]; then
+  echo >&2 "erl not in PATH, please install it manually"
+  exit 1
+fi
 if [ "$MODE" == "master" ]; then
   name="master@$IP"
 else
