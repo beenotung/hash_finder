@@ -14,6 +14,30 @@ case "$(uname -s)" in
     exit 1
     ;;
 esac
+hash erl 2>/dev/null
+if [ $? != 0 ]; then
+  echo >&2 "erl not in PATH, try to find it"
+  erl=$(echo $PWD/../erl*/)
+  if [ -f "$erl/bin/erl.exe" ]; then
+    pwd=$PWD
+    cd "$erl"
+    echo "found $erl/bin/erl.exe"
+    ./Install.exe -s
+    export PATH="$erl/bin:$PATH"
+    erlc 2>/dev/null
+    if [ $? != 0 ]; then
+      echo >&2 "seems missing dependency, installing vcredist_x64"
+      ./vcredist_x64.exe
+      cd "$pwd"
+      $0 $@
+      exit $?
+    fi
+    cd "$pwd"
+  else
+    echo >&2 "erl runtime not found, exiting"
+    exit 1
+  fi
+fi
 if [ "$MODE" == "master" ]; then
   name="master@$IP"
 else
